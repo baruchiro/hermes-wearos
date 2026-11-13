@@ -385,7 +385,7 @@ class WearApp : Application() {
                 // (ChatSession/pusher/sessions/agents) rides the winner with zero changes.
                 endpoints = EndpointResolver(settings) { gw, api, wk ->
                     settings.syncMirror(api, wk, gw.token)
-                    Watchkit.setConfig(wk.ifEmpty { AppSettings.DEFAULT_WATCHKIT_URL }, settings.watchkitToken())
+                    Watchkit.setConfig(wk.ifEmpty { AppSettings.DEFAULT_WATCHKIT_URL }, if (gw.direct) gw.watchkitToken else settings.watchkitToken())
                 }
                 // ROUTE FOLLOWED THE LINK (SPEC §11.6): without this, the app discovered a network
                 // change by failing one ask — a winner learned on home Wi-Fi stayed "fresh" for
@@ -444,7 +444,7 @@ class WearApp : Application() {
                 // plain-socket operation (release cannot even turn the keeper off). The boot
                 // receiver covers cold boots.
                 scope.launch {
-                    if (settings.tailnetEnabled()) tailnetStart()
+                    if (settings.tunnelRequired()) tailnetStart()
                 }
                 // THE TUNNEL GATES THE TRUTH (SPEC §11.4): the boot probe below races node
                 // enrollment and can legitimately fail every .ts.net entry BEFORE the node is
@@ -573,6 +573,7 @@ class WearApp : Application() {
                 try {
                     val wasSelected = settings.selectedGatewayId() == gw.id
                     settings.saveGateway(gw, select = gw.id == settings.selectedGatewayId())
+                    if (settings.tunnelRequired()) tailnetStart()
                     val sel = settings.selectedGateway()
                     if (wasSelected && sel != null) {
                         endpoints.rebind(sel)
@@ -1007,7 +1008,7 @@ class WearApp : Application() {
             Thread {
                 try {
                     val base = kotlinx.coroutines.runBlocking { settings.baseUrl() }
-                    val token = kotlinx.coroutines.runBlocking { settings.token() }
+                    val token = kotlinx.coroutines.runBlocking { settings.tokenFor(settings.profileSync()) }
                     val list = devHttpSessions(base, token)
                     android.util.Log.i("HermesWear", "sessions_dump base=$base n=${list.size}")
                     list.forEach {

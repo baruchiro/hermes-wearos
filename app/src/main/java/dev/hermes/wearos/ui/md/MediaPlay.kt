@@ -35,13 +35,13 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import dev.hermes.wearos.WearApp
 import dev.hermes.wearos.domain.DialVolume
 import dev.hermes.wearos.domain.RotaryVolume
-import dev.hermes.wearos.net.TailnetRoute
+import dev.hermes.wearos.net.HermesApi
 import dev.hermes.wearos.net.Watchkit
 import dev.hermes.wearos.ui.scaled
 import kotlinx.coroutines.delay
@@ -54,9 +54,10 @@ import kotlinx.coroutines.delay
  * swallows exactly one back).
  *
  * Playback rides media3/ExoPlayer (same stack the intro film uses). Gateway-host paths stream
- * from watchkit /media (ffmpeg pre-shrunk, bearer via request headers) THROUGH the tailnet SOCKS
- * shim — media3 builds its own HttpURLConnections, so the proxy comes from [TailnetRoute.SELECTOR]
- * explicitly; public URLs play direct with no bearer leak.
+ * from watchkit /media (ffmpeg pre-shrunk, bearer via request headers). The data source is the
+ * app's own OkHttp client (media3-datasource-okhttp), so the tailnet route, a direct gateway's
+ * access headers and the per-hop credential policy (AccessHeaders) apply exactly as for REST;
+ * public URLs play direct with no bearer leak.
  */
 @Composable
 fun MediaPlayDialog(target: String, video: Boolean, label: String, onDismiss: () -> Unit) {
@@ -68,17 +69,10 @@ fun MediaPlayDialog(target: String, video: Boolean, label: String, onDismiss: ()
     val url = remember(target, cfg, prefs) { Watchkit.mediaUrl(target) }
     val player = remember(url) {
         runCatching {
-            val dsf = DefaultHttpDataSource.Factory()
+            val dsf = OkHttpDataSource.Factory(HermesApi.DEFAULT)
                 .setUserAgent("HermesWear/1.0")
-                .setAllowCrossProtocolRedirects(true)
-                .setConnectTimeoutMs(15_000)
-                .setReadTimeoutMs(30_000)
             if (Watchkit.mediaNeedsAuth(target))
                 dsf.setDefaultRequestProperties(mapOf("Authorization" to "Bearer ${Watchkit.currentToken()}"))
-            // media3 1.4.1 has no Factory.setProxy (added upstream in 1.5) — but libcore's
-            // HttpURLConnection asks java.net.ProxySelector.getDefault(), so the app installs
-            // TailnetRoute.SELECTOR as the default for the player's lifetime (restored on
-            // dispose): gateway hosts reach watchkit THROUGH the tunnel, exactly like OkHttp.
             DefaultRenderersFactory(context.applicationContext)
                 .setEnableDecoderFallback(true)
                 .let { ExoPlayer.Builder(context.applicationContext, it).build() }
@@ -99,8 +93,6 @@ fun MediaPlayDialog(target: String, video: Boolean, label: String, onDismiss: ()
     var errored by remember { mutableStateOf(false) }
     DisposableEffect(player) {
         val p = player ?: return@DisposableEffect onDispose { }
-        val priorSelector = java.net.ProxySelector.getDefault()
-        java.net.ProxySelector.setDefault(TailnetRoute.SELECTOR)
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) { errored = true }
         }
@@ -109,7 +101,6 @@ fun MediaPlayDialog(target: String, video: Boolean, label: String, onDismiss: ()
         onDispose {
             p.removeListener(listener)
             p.release()
-            java.net.ProxySelector.setDefault(priorSelector)
         }
     }
 

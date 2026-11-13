@@ -37,7 +37,8 @@ object MediaPlayerHolder {
     private var player: ExoPlayer? = null
     @Volatile private var onEnded: (() -> Unit)? = null
     private val http by lazy {
-        OkHttpClient.Builder().proxySelector(TailnetRoute.SELECTOR).build()
+        OkHttpClient.Builder().proxySelector(TailnetRoute.SELECTOR)
+            .addNetworkInterceptor(dev.hermes.wearos.net.AccessHeaders.INTERCEPTOR).build()
     }
 
     private val playbackListener = object : Player.Listener {
