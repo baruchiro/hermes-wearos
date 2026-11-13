@@ -570,7 +570,7 @@ class AppSettings(private val context: Context) {
         // Capabilities come from the GATEWAY when we can reach it (this watch holds the active
         // profile's key — the only client that can ask); watchkit's own flags are the fallback for
         // an unreachable gateway. Unknown is better than wrong: absent = rendered enabled.
-        val liveCaps = runCatching { HermesApi(baseUrl(), token()).capabilities() }.getOrDefault(emptyMap())
+        val liveCaps = runCatching { HermesApi(baseUrl(), tokenFor(profileSync())).capabilities() }.getOrDefault(emptyMap())
         val caps = if (liveCaps.isNotEmpty()) liveCaps else resp.capabilities
         if (rows.isEmpty() && caps.isEmpty()) return 0
         setSlashCatalogJson(CommandCatalog.gatewayJson(rows, caps))
@@ -688,11 +688,15 @@ class AppSettings(private val context: Context) {
     private fun sealGatewayFields(g: Gateway) = g.copy(
         token = KeystoreSecrets.seal(context, g.token),
         agentKeys = g.agentKeys.mapValues { KeystoreSecrets.seal(context, it.value) },
+        watchkitToken = KeystoreSecrets.seal(context, g.watchkitToken),
+        accessHeaders = g.accessHeaders.mapValues { KeystoreSecrets.seal(context, it.value) },
     )
 
     private fun unsealGatewayFields(g: Gateway) = g.copy(
         token = KeystoreSecrets.unseal(context, g.token),
         agentKeys = g.agentKeys.mapValues { KeystoreSecrets.unseal(context, it.value) },
+        watchkitToken = KeystoreSecrets.unseal(context, g.watchkitToken),
+        accessHeaders = g.accessHeaders.mapValues { KeystoreSecrets.unseal(context, it.value) },
     )
 
     private fun encodeGateways(list: List<Gateway>): String =
@@ -722,7 +726,14 @@ class AppSettings(private val context: Context) {
      * "the other gateway totally disappeared when I clicked this one"). The last good decode is
      * the tiebreaker; genuine first-run (blank raw) still reads empty so migration can run.
      */
-    @Volatile private var gatewaysCache: List<Gateway> = emptyList()
+    @Volatile private var gatewaysBacking: List<Gateway> = emptyList()
+    private var gatewaysCache: List<Gateway>
+        get() = gatewaysBacking
+        set(v) { gatewaysBacking = v; dev.hermes.wearos.net.AccessHeaders.apply(v) }
+
+    /** False when every configured gateway is a generic HTTPS one: the embedded node has no job. */
+    suspend fun tunnelRequired(): Boolean =
+        tailnetEnabled() && !dev.hermes.wearos.domain.DirectGateway.tunnelNotNeeded(gateways())
 
     suspend fun gateways(): List<Gateway> {
         val raw = context.dataStore.data.first()[KEY_GATEWAYS].orEmpty()

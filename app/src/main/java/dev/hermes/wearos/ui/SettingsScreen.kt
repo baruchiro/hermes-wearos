@@ -580,7 +580,7 @@ fun SettingsScreen(
                     testing = true; testResult = "…"
                     scope.launch {
                         testResult = try {
-                            val a = HermesApi(settings.baseUrl(), settings.token())
+                            val a = HermesApi(settings.baseUrl(), settings.tokenFor(settings.profileSync()))
                             withContext(Dispatchers.IO) { a.health() }
                         } catch (e: Exception) {
                             "⚠️ " + RouteReport.explain(e)
@@ -706,7 +706,7 @@ fun SettingsScreen(
                     tnTesting = true; tnTestResult = "…"
                     scope.launch {
                         tnTestResult = try {
-                            val a = dev.hermes.wearos.net.HermesApi(settings.baseUrl(), settings.token())
+                            val a = dev.hermes.wearos.net.HermesApi(settings.baseUrl(), settings.tokenFor(settings.profileSync()))
                             withContext(Dispatchers.IO) { a.health() }
                         } catch (e: Exception) {
                             "⚠️ " + RouteReport.explain(e)

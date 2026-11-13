@@ -3,6 +3,7 @@ package dev.hermes.wearos.domain
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -317,5 +318,118 @@ class GatewayModelTest {
             GatewayModel.decode(legacy.replace("\"token\":\"T\"", "\"token\":\"T\",\"agentKeys\":{\"wear\":\"WEARKEY\"}"))
                 .single().keyFor("wear"),
         )
+    }
+
+    // ── generic HTTPS gateways (SPEC §11.7) ─────────────────────────────────
+
+    private fun direct(
+        keys: Map<String, String> = emptyMap(),
+        headers: Map<String, String> = emptyMap(),
+        token: String = "",
+        api: String = "https://hermes.example.com",
+    ) = Gateway(
+        "d", "remote", listOf(api), listOf("https://wk.example.com"), token, keys,
+        direct = true, accessHeaders = headers,
+    )
+
+    @Test
+    fun `a direct gateway never falls back to a gateway-wide or mirror key`() {
+        val g = direct(keys = mapOf("wear" to "WEARKEY"), token = "GWKEY")
+        assertEquals("WEARKEY", g.keyFor("wear"))
+        assertEquals("", g.keyFor("research"))
+        assertEquals("", GatewayModel.tokenFor(g, "research", "MIRROR"))
+        assertEquals("WEARKEY", GatewayModel.tokenFor(g, "wear", "MIRROR"))
+    }
+
+    @Test
+    fun `tailnet gateways keep the old fallback chain`() {
+        val g = gw("GWKEY", mapOf("wear" to "WEARKEY"))
+        assertFalse(g.direct)
+        assertEquals("GWKEY", GatewayModel.tokenFor(g, "other", "MIRROR"))
+    }
+
+    @Test
+    fun `direct gateway fields survive the registry round trip and old blobs decode as tailnet`() {
+        val g = direct(keys = mapOf("wear" to "A"), headers = mapOf("CF-Access-Client-Id" to "id"))
+        val back = GatewayModel.decode(GatewayModel.encode(listOf(g))).single()
+        assertTrue(back.direct)
+        assertEquals(mapOf("CF-Access-Client-Id" to "id"), back.accessHeaders)
+        assertFalse(GatewayModel.decode(GatewayModel.encode(listOf(gw("T")))).single().direct)
+    }
+
+    @Test
+    fun `direct endpoints must be https without credentials query or fragment`() {
+        assertNull(DirectGateway.validateEndpoint("https://hermes.example.com"))
+        assertNull(DirectGateway.validateEndpoint("https://hermes.example.com:8443/base"))
+        assertEquals("direct gateways require https://", DirectGateway.validateEndpoint("http://hermes.example.com"))
+        assertTrue(DirectGateway.validateEndpoint("https://u:p@hermes.example.com")!!.contains("credentials"))
+        assertTrue(DirectGateway.validateEndpoint("https://hermes.example.com/?k=v")!!.contains("query"))
+        assertTrue(DirectGateway.validateEndpoint("https://hermes.example.com/#x")!!.contains("fragment"))
+    }
+
+    @Test
+    fun `bare hosts normalize to https, never to the tailnet http 8642 default`() {
+        assertEquals("https://hermes.example.com", DirectGateway.normalizeEndpoint("hermes.example.com"))
+        assertEquals("https://hermes.example.com:8443", DirectGateway.normalizeEndpoint("hermes.example.com:8443/p/wear/"))
+        assertEquals("http://x.example.com", DirectGateway.normalizeEndpoint("http://x.example.com"))
+    }
+
+    @Test
+    fun `Authorization is reserved for the profile key in every spelling`() {
+        listOf("Authorization", "authorization", " AUTHORIZATION ", "Proxy-Authorization").forEach {
+            assertTrue(it, DirectGateway.validateHeaders(mapOf(it to "x"))!!.contains("reserved"))
+        }
+        assertNull(DirectGateway.validateHeaders(mapOf("CF-Access-Client-Id" to "a", "CF-Access-Client-Secret" to "b")))
+    }
+
+    @Test
+    fun `header names and values are validated`() {
+        assertTrue(DirectGateway.validateHeaders(mapOf("Bad Name" to "x"))!!.contains("invalid"))
+        assertTrue(DirectGateway.validateHeaders(mapOf("X-A" to ""))!!.contains("empty"))
+        assertTrue(DirectGateway.validateHeaders(mapOf("X-A" to "a\r\nX-B: c"))!!.contains("control"))
+        assertTrue(DirectGateway.validateHeaders(mapOf("Host" to "evil"))!!.contains("reserved"))
+        assertTrue(DirectGateway.validateHeaders(mapOf("X-A" to "1", "x-a" to "2"))!!.contains("duplicate"))
+        assertTrue(DirectGateway.validateHeaders((1..9).associate { "X-H$it" to "v" })!!.contains("at most"))
+    }
+
+    @Test
+    fun `upsert refuses a direct gateway that is http or carries Authorization`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            GatewayModel.upsert(emptyList(), direct(api = "http://hermes.example.com"))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            GatewayModel.upsert(emptyList(), direct(headers = mapOf("Authorization" to "Bearer x")))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            GatewayModel.upsert(emptyList(), gw("T").copy(accessHeaders = mapOf("X-A" to "1")))
+        }
+    }
+
+    @Test
+    fun `upsert stores direct endpoints as https and trims header names and values`() {
+        val saved = GatewayModel.upsert(
+            emptyList(),
+            direct(api = "hermes.example.com", headers = mapOf(" CF-Access-Client-Id " to " id ")),
+        ).single()
+        assertEquals(listOf("https://hermes.example.com"), saved.apiEndpoints)
+        assertEquals(mapOf("CF-Access-Client-Id" to "id"), saved.accessHeaders)
+    }
+
+    @Test
+    fun `the tunnel is unneeded only when every gateway is direct`() {
+        assertFalse(DirectGateway.tunnelNotNeeded(emptyList()))
+        assertTrue(DirectGateway.tunnelNotNeeded(listOf(direct())))
+        assertFalse(DirectGateway.tunnelNotNeeded(listOf(direct(), gw("T"))))
+    }
+
+    @Test
+    fun `origins compare scheme host and effective port`() {
+        assertEquals(DirectGateway.originOf("https://H.example.com"), DirectGateway.originOf("https://h.example.com:443/x"))
+        assertFalse(DirectGateway.originOf("https://h.example.com") == DirectGateway.originOf("https://h.example.com:8443"))
+        assertEquals(
+            setOf(Origin("https", "hermes.example.com", 443), Origin("https", "wk.example.com", 443)),
+            DirectGateway.origins(direct()),
+        )
+        assertTrue(DirectGateway.origins(gw("T")).isEmpty())
     }
 }

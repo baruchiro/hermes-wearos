@@ -45,6 +45,7 @@ object GatewayTts {
 
     val http: OkHttpClient by lazy {
         OkHttpClient.Builder().proxySelector(TailnetRoute.SELECTOR)
+            .addNetworkInterceptor(dev.hermes.wearos.net.AccessHeaders.INTERCEPTOR)
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS).build()
     }
