@@ -428,7 +428,7 @@ fun SettingsScreen(
                     val api = (listOf(d.apiA, d.apiB) + d.extraApis).map { it.trim() }
                         .filter { it.isNotEmpty() }.distinct()
                     if (api.isEmpty()) { gwNote = "⚠️ needs an API URL"; return@GatewayEditor }
-                    val wk = (listOf(d.wkA.ifBlank { GatewayModel.derivedWatchkit(api.first()) }) + d.extraWks)
+                    val wk = (listOf(d.wkA.ifBlank { if (d.direct) "" else GatewayModel.derivedWatchkit(api.first()) }) + d.extraWks)
                         .map { it.trim() }.filter { it.isNotEmpty() }.distinct()
                     val gwId = d.id.ifEmpty { GatewayModel.hostId(api.first()) }
                     val gw = Gateway(
@@ -436,10 +436,13 @@ fun SettingsScreen(
                         label = d.label.trim().ifEmpty { GatewayModel.hostId(api.first()) },
                         apiEndpoints = api.distinct(),
                         watchkitEndpoints = wk.distinct(),
-                        token = d.token.trim(),
+                        token = if (d.direct) "" else d.token.trim(),
                         // Editing URLs must never erase the per-profile keys learned from the box
                         // (SPEC §12.2) — the editor does not show them, so carry them over.
                         agentKeys = gateways.firstOrNull { it.id == gwId }?.agentKeys.orEmpty(),
+                        direct = d.direct,
+                        accessHeaders = d.headers(),
+                        watchkitToken = if (d.direct) d.wkToken.trim() else "",
                     )
                     WearApp.Graph.saveGateway(gw) { err ->
                         WearApp.Graph.runOnUi {
@@ -1674,6 +1677,36 @@ private fun GatewayEditor(
         FieldLabel("Token")
         EditLine(value = draft.token, onChange = { onChange(draft.copy(token = it)) },
             placeholder = "••••••", password = true, onDone = { onSave(draft) })
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Remote HTTPS (no tailnet)", style = MaterialTheme.typography.caption1)
+            Switch(checked = draft.direct, onCheckedChange = { onChange(draft.copy(direct = it)) })
+        }
+        if (draft.direct) {
+            Text(
+                "https:// only. Profile keys are set per agent (Agent keys); this gateway never reuses another key.",
+                style = MaterialTheme.typography.caption3,
+                color = MaterialTheme.colors.onBackground.copy(alpha = 0.5f),
+            )
+            FieldLabel("Access header 1 name (e.g. CF-Access-Client-Id)")
+            EditLine(value = draft.h1Name, onChange = { onChange(draft.copy(h1Name = it)) },
+                placeholder = "CF-Access-Client-Id", onDone = { onSave(draft) })
+            FieldLabel("Access header 1 value")
+            EditLine(value = draft.h1Value, onChange = { onChange(draft.copy(h1Value = it)) },
+                placeholder = "••••••", password = true, onDone = { onSave(draft) })
+            FieldLabel("Access header 2 name")
+            EditLine(value = draft.h2Name, onChange = { onChange(draft.copy(h2Name = it)) },
+                placeholder = "CF-Access-Client-Secret", onDone = { onSave(draft) })
+            FieldLabel("Access header 2 value")
+            EditLine(value = draft.h2Value, onChange = { onChange(draft.copy(h2Value = it)) },
+                placeholder = "••••••", password = true, onDone = { onSave(draft) })
+            if (draft.extraHeaders.isNotEmpty()) {
+                Text("+${draft.extraHeaders.size} header(s) kept",
+                    style = MaterialTheme.typography.caption3, color = MaterialTheme.colors.onBackground.copy(alpha = 0.5f))
+            }
+            FieldLabel("Watchkit token (optional)")
+            EditLine(value = draft.wkToken, onChange = { onChange(draft.copy(wkToken = it)) },
+                placeholder = "••••••", password = true, onDone = { onSave(draft) })
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
                 onClick = { onSave(draft) },
@@ -1702,18 +1735,41 @@ private data class GwDraft(
     val wkA: String = "",
     val extraWks: List<String> = emptyList(),
     val token: String = "",
+    val direct: Boolean = false,
+    val h1Name: String = "",
+    val h1Value: String = "",
+    val h2Name: String = "",
+    val h2Value: String = "",
+    val extraHeaders: Map<String, String> = emptyMap(),
+    val wkToken: String = "",
 ) {
+    fun headers(): Map<String, String> =
+        if (!direct) emptyMap()
+        else extraHeaders + listOf(h1Name to h1Value, h2Name to h2Value)
+            .filter { it.first.isNotBlank() || it.second.isNotBlank() }
+            .associate { it.first.trim() to it.second.trim() }
+
     companion object {
-        fun of(gw: Gateway) = GwDraft(
-            id = gw.id,
-            label = gw.label,
-            apiA = gw.apiEndpoints.getOrElse(0) { "" },
-            apiB = gw.apiEndpoints.getOrElse(1) { "" },
-            extraApis = gw.apiEndpoints.drop(2),
-            wkA = gw.watchkitEndpoints.getOrElse(0) { "" },
-            extraWks = gw.watchkitEndpoints.drop(1),
-            token = gw.token,
-        )
+        fun of(gw: Gateway): GwDraft {
+            val hs = gw.accessHeaders.entries.toList()
+            return GwDraft(
+                id = gw.id,
+                label = gw.label,
+                apiA = gw.apiEndpoints.getOrElse(0) { "" },
+                apiB = gw.apiEndpoints.getOrElse(1) { "" },
+                extraApis = gw.apiEndpoints.drop(2),
+                wkA = gw.watchkitEndpoints.getOrElse(0) { "" },
+                extraWks = gw.watchkitEndpoints.drop(1),
+                token = gw.token,
+                direct = gw.direct,
+                h1Name = hs.getOrNull(0)?.key.orEmpty(),
+                h1Value = hs.getOrNull(0)?.value.orEmpty(),
+                h2Name = hs.getOrNull(1)?.key.orEmpty(),
+                h2Value = hs.getOrNull(1)?.value.orEmpty(),
+                extraHeaders = hs.drop(2).associate { it.key to it.value },
+                wkToken = gw.watchkitToken,
+            )
+        }
     }
 }
 
