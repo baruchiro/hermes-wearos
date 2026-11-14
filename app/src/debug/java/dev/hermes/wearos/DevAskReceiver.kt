@@ -132,6 +132,13 @@ class DevAskReceiver : BroadcastReceiver() {
         intent?.getStringExtra("add_gw")?.let { spec ->
             WearApp.Graph.devAddGateway(spec); return
         }
+        // Secrets travel by file, never on the am command line (visible in ps and shell history):
+        // `run-as dev.hermes.wearos sh -c 'cat > files/direct_gw.json'`, then `-e direct_gw_file direct_gw.json`.
+        intent?.getStringExtra("direct_gw_file")?.let { name ->
+            val ctx = context ?: return
+            CoroutineScope(Dispatchers.Main).launch { addDirectGateway(ctx, name) }
+            return
+        }
         if (intent?.hasExtra("render_test") == true) { WearApp.Graph.devRenderTest(); return }
         if (intent?.hasExtra("img_test") == true) { WearApp.Graph.devImgTest(); return }
         if (intent?.hasExtra("body_status") == true) { WearApp.Graph.devBodyStatus(); return }
@@ -371,5 +378,40 @@ class DevAskReceiver : BroadcastReceiver() {
         intent?.getStringExtra("play_url")?.let { MediaPlayerHolder.play(context!!, it); return }
         val text = intent?.getStringExtra("text") ?: return
         WearApp.Graph.session.ask(text)
+    }
+
+    /**
+     * Upsert + select a generic HTTPS gateway from `filesDir/<name>` (JSON: id, label, api,
+     * watchkit?, watchkitToken?, token?, headers{}, agentKeys{}). Goes through the real saveGateway, so the
+     * direct-mode validation and Keystore sealing apply. The file is deleted whatever happens and
+     * only lengths are logged.
+     */
+    private suspend fun addDirectGateway(ctx: Context, name: String) {
+        val file = java.io.File(ctx.filesDir, name)
+        val msg = try {
+            val o = org.json.JSONObject(file.readText())
+            fun map(key: String): Map<String, String> =
+                o.optJSONObject(key)?.let { j -> j.keys().asSequence().associateWith { j.getString(it) } }.orEmpty()
+            val gw = dev.hermes.wearos.domain.Gateway(
+                id = o.getString("id"),
+                label = o.optString("label", o.getString("id")),
+                apiEndpoints = listOf(o.getString("api")),
+                watchkitEndpoints = listOfNotNull(o.optString("watchkit").takeIf { it.isNotEmpty() }),
+                token = o.optString("token"),
+                agentKeys = map("agentKeys"),
+                direct = true,
+                accessHeaders = map("headers"),
+                watchkitToken = o.optString("watchkitToken"),
+            )
+            WearApp.Graph.settings.saveGateway(gw, select = false)
+            WearApp.Graph.devGwSelect(gw.id)
+            "direct_gw ok id=${gw.id} headers=${gw.accessHeaders.keys} keys=${gw.agentKeys.mapValues { it.value.length }}"
+        } catch (e: Exception) {
+            "direct_gw FAILED: ${e.javaClass.simpleName}: ${e.message}"
+        } finally {
+            file.delete()
+        }
+        Log.i("HermesWear", msg)
+        Toast.makeText(ctx, msg.substringBefore(" headers"), Toast.LENGTH_SHORT).show()
     }
 }
