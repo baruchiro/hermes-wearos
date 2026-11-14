@@ -31,11 +31,20 @@ object TailnetRoute {
     @Volatile
     var failClosed: Boolean = false
 
+    /**
+     * Origins of generic HTTPS gateways (SPEC §11.7): reached over the ordinary network, never
+     * through the tunnel and never blocked by [failClosed]. Fed by [AccessHeaders.apply].
+     */
+    @Volatile
+    var directOrigins: Set<dev.hermes.wearos.domain.Origin> = emptySet()
+
     val SELECTOR: ProxySelector = object : ProxySelector() {
         override fun select(uri: URI?): List<Proxy> {
             val p = socksPort
             val host = uri?.host?.lowercase().orEmpty()
             if (host == "127.0.0.1" || host == "localhost" || host == "::1") return listOf(Proxy.NO_PROXY)
+            if (directOrigins.isNotEmpty() &&
+                dev.hermes.wearos.domain.DirectGateway.originOf(uri.toString()) in directOrigins) return listOf(Proxy.NO_PROXY)
             if (p > 0) return listOf(Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", p)))
             // Tunnel down: dev = plain sockets (escape hatch), release = NO route at all.
             return if (failClosed) emptyList() else listOf(Proxy.NO_PROXY)

@@ -86,6 +86,7 @@ class ChatSession(
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(45, TimeUnit.SECONDS)   // events stream: server keepalive is every 10 s
         .proxySelector(dev.hermes.wearos.net.TailnetRoute.SELECTOR)   // SPEC §11.4: SSE rides the tunnel
+        .addNetworkInterceptor(dev.hermes.wearos.net.AccessHeaders.INTERCEPTOR)
         .build()
 
     private var askJob: Job? = null

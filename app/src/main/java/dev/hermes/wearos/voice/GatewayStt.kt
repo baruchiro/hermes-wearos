@@ -88,6 +88,7 @@ class GatewayStt(
     @Volatile private var stopping = false
     private val client = OkHttpClient.Builder().pingInterval(15, TimeUnit.SECONDS)
         .proxySelector(dev.hermes.wearos.net.TailnetRoute.SELECTOR)   // the STT WebSocket rides the tunnel (SPEC §11.4)
+        .addNetworkInterceptor(dev.hermes.wearos.net.AccessHeaders.INTERCEPTOR)
         .build()
 
     override fun start(scope: CoroutineScope): Flow<SttEvent> = channelFlow {

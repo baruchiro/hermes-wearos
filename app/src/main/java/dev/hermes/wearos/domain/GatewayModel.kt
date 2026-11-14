@@ -34,13 +34,29 @@ data class Gateway(
      * so an older watch reading a newer blob simply ignores it (and defaults here are empty).
      */
     val agentKeys: Map<String, String> = emptyMap(),
+    /**
+     * GENERIC HTTPS MODE: this gateway is reached over ordinary HTTPS (reverse proxy, Cloudflare
+     * Access, any VPN-less remote) instead of the embedded tailnet node. Direct gateways never use
+     * the tailnet route, the pairing lane or whois identity, and never inherit a gateway-wide or
+     * mirror key for a profile (see [keyFor]). Default false keeps every existing record unchanged.
+     */
+    val direct: Boolean = false,
+    /**
+     * Optional access-layer headers (e.g. `CF-Access-Client-Id` / `CF-Access-Client-Secret`) sent
+     * ONLY to this gateway's own https origins. Independent of the Hermes bearer: `Authorization`
+     * is reserved for the per-profile key and rejected here ([DirectGateway.validate]). Values
+     * are secrets and are sealed at rest like tokens.
+     */
+    val accessHeaders: Map<String, String> = emptyMap(),
+    /** Bearer for this gateway's optional watchkit helper (direct mode only; its own secret, sealed). */
+    val watchkitToken: String = "",
 ) {
     val primaryApi: String get() = apiEndpoints.firstOrNull().orEmpty()
     val primaryWatchkit: String get() = watchkitEndpoints.firstOrNull().orEmpty()
 
     /** This agent's key on this gateway, falling back to the gateway token (SPEC §12.2 order). */
     fun keyFor(agent: String): String =
-        agentKeys[agent]?.trim()?.takeIf { it.isNotEmpty() } ?: token.trim()
+        agentKeys[agent]?.trim()?.takeIf { it.isNotEmpty() } ?: if (direct) "" else token.trim()
 }
 
 /**
@@ -190,7 +206,8 @@ object GatewayModel {
      * install) behaving exactly as it does today, so this can never make a working agent worse.
      */
     fun tokenFor(gateway: Gateway?, agent: String, mirrorToken: String): String =
-        gateway?.keyFor(agent)?.takeIf { it.isNotEmpty() } ?: mirrorToken.trim()
+        if (gateway?.direct == true) gateway.keyFor(agent)
+        else gateway?.keyFor(agent)?.takeIf { it.isNotEmpty() } ?: mirrorToken.trim()
 
     /** Same host, watchkit port convention (:42651) — owner's layout on every gateway box. */
     fun derivedWatchkit(apiEndpoint: String): String {
@@ -215,13 +232,17 @@ object GatewayModel {
 
     /** CRUD: replace by id, else append. Blank fields fall back to sane values. */
     fun upsert(list: List<Gateway>, gw: Gateway): List<Gateway> {
+        val norm: (String) -> String = if (gw.direct) DirectGateway::normalizeEndpoint else ::normalizeEndpoint
         val clean = gw.copy(
             label = gw.label.trim().ifEmpty { gw.id.ifEmpty { "gateway" } },
-            apiEndpoints = gw.apiEndpoints.map { normalizeEndpoint(it) }.filter { it.isNotEmpty() }.distinct(),
-            watchkitEndpoints = gw.watchkitEndpoints.map { normalizeEndpoint(it) }.filter { it.isNotEmpty() }.distinct(),
+            apiEndpoints = gw.apiEndpoints.map(norm).filter { it.isNotEmpty() }.distinct(),
+            watchkitEndpoints = gw.watchkitEndpoints.map(norm).filter { it.isNotEmpty() }.distinct(),
             token = gw.token.trim(),
+            watchkitToken = gw.watchkitToken.trim(),
+            accessHeaders = gw.accessHeaders.mapKeys { it.key.trim() }.mapValues { it.value.trim() },
         )
         require(clean.apiEndpoints.isNotEmpty()) { "gateway needs at least one API endpoint" }
+        DirectGateway.validate(clean)?.let { throw IllegalArgumentException(it) }
         val id = clean.id.ifEmpty { hostId(clean.primaryApi) }
         val withId = clean.copy(id = id)
         val idx = list.indexOfFirst { it.id == id }

@@ -67,6 +67,7 @@ dependencies {
     implementation(libs.vosk.android)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
+    implementation(libs.media3.datasource.okhttp)
     // M5: watch-native notifications, ask tile, attention complication.
     implementation(libs.androidx.wear.tiles)
     implementation(libs.androidx.wear.tiles.material)
@@ -76,6 +77,8 @@ dependencies {
     // W1-W4: Health Services body tools (fail-soft: every call degrades to "unavailable").
     implementation(libs.androidx.health.services.client)
     testImplementation(libs.junit)
+    testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.okhttp.tls)
     // Pure state-machine tests drive suspend probe loops on the JVM (FailoverTest).
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
 }

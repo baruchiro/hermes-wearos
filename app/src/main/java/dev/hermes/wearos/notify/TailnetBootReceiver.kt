@@ -22,7 +22,7 @@ class TailnetBootReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val settings = AppSettings(context)
-                if (settings.tailnetEnabled()) {
+                if (settings.tunnelRequired()) {
                     androidx.core.content.ContextCompat.startForegroundService(
                         context, Intent(context, TailnetService::class.java),
                     )

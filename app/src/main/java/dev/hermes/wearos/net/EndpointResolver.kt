@@ -183,6 +183,7 @@ class HttpProber : Prober {
         .readTimeout(2500, TimeUnit.MILLISECONDS)
         .callTimeout(2800, TimeUnit.MILLISECONDS)
         .proxySelector(dev.hermes.wearos.net.TailnetRoute.SELECTOR)   // probes ride the tunnel too (SPEC §11.4)
+        .addNetworkInterceptor(dev.hermes.wearos.net.AccessHeaders.INTERCEPTOR)
         .build()
 
     override suspend fun ok(url: String): Boolean = withContext(Dispatchers.IO) {
