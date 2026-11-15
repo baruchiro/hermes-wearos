@@ -49,6 +49,7 @@ class WearApp : Application() {
     /** App-wide singletons; M5: foreground gate for notifications + attention/complication push. */
     object Graph {
         private const val TAG = "HermesWear"
+        private val REROUTE_RETRY_MS = longArrayOf(3_000, 10_000, 30_000, 60_000)
         private val scope = CoroutineScope(SupervisorJob())
         lateinit var app: Application
             private set
@@ -393,8 +394,16 @@ class WearApp : Application() {
                 // The monitor owns the ConnectivityManager callback (application scope, never an
                 // Activity: the change we care about happens in the pocket, screen off).
                 network = NetworkMonitor(app, onChange = { reason ->
-                    val api = endpoints.onNetworkChanged(reason)
+                    var api = endpoints.onNetworkChanged(reason)
                     Log.i(TAG, "route after network change: ${api.ifEmpty { "none — nothing answered" }}")
+                    // A link that just came up often has no working DNS for a few seconds, so the
+                    // first probe fails and the screen stayed on cached data until a manual pull.
+                    for (wait in REROUTE_RETRY_MS) {
+                        if (api.isNotEmpty()) break
+                        delay(wait)
+                        api = endpoints.onNetworkChanged("$reason, retry after ${wait / 1000}s")
+                        Log.i(TAG, "route after retry: ${api.ifEmpty { "none — nothing answered" }}")
+                    }
                     // Refresh what visibly lies when a route goes stale: the agent list and the
                     // gateway's session list (both were the reason a stale endpoint felt like a bug).
                     runCatching { agents.refresh() }

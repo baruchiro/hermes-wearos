@@ -9,7 +9,9 @@ import android.util.Log
 import dev.hermes.wearos.domain.NetInfo
 import dev.hermes.wearos.domain.NetworkWatch
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -44,6 +46,9 @@ class NetworkMonitor(
     private val cm = context.applicationContext
         .getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /** The newest change owns the re-route: an older one still retrying is about a network that is gone. */
+    private var reroute: Job? = null
 
     private val _net = MutableStateFlow(NetInfo.DOWN)
 
@@ -100,7 +105,12 @@ class NetworkMonitor(
         val why = reason ?: return
         val info = _net.value
         Log.i(TAG, "network change: $why · ${NetworkWatch.describe(info)}")
-        scope.launch { runCatching { onChange(why) }.onFailure { Log.w(TAG, "route re-check failed", it) } }
+        reroute?.cancel()
+        reroute = scope.launch {
+            runCatching { onChange(why) }.onFailure {
+                if (it !is CancellationException) Log.w(TAG, "route re-check failed", it)
+            }
+        }
     }
 
     /**
