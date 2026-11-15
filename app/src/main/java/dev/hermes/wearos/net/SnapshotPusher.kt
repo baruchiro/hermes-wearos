@@ -109,6 +109,7 @@ class SnapshotPusher(
             val t = toggles()
             if (!t.any() && !force) return record("skipped · all body tools off")
             val cfg = Watchkit.config.value
+            if (cfg.baseUrl.isEmpty()) return record("skipped · no watchkit for this gateway")
             if (cfg.token.isEmpty()) return record("skipped · watchkit token unset (Settings/adb)")
             val now = System.currentTimeMillis()
             val body = BodySnapshot.buildJson(now, chatActive = false, t, locationValues(t, reason))

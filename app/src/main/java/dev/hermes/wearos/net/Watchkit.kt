@@ -38,7 +38,7 @@ object Watchkit {
     val config: StateFlow<Config> = _config.asStateFlow()
 
     fun setConfig(baseUrl: String, token: String) {
-        _config.value = Config(baseUrl.trim().trimEnd('/').ifEmpty { AppSettings.DEFAULT_WATCHKIT_URL }, token.trim())
+        _config.value = Config(baseUrl.trim().trimEnd('/'), token.trim())
     }
 
     /**
@@ -282,6 +282,7 @@ object Watchkit {
     fun mediaUrl(target: String): String {
         if (!mediaNeedsAuth(target)) return target
         val cfg = _config.value
+        if (cfg.baseUrl.isEmpty()) return "" // no watchkit for this gateway: playback fails, the UI must not crash
         val m = _mediaPrefs.value
         return cfg.baseUrl.toHttpUrl().newBuilder()
             .addPathSegment("media")

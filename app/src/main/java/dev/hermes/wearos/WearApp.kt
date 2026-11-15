@@ -386,7 +386,7 @@ class WearApp : Application() {
                 // (ChatSession/pusher/sessions/agents) rides the winner with zero changes.
                 endpoints = EndpointResolver(settings) { gw, api, wk ->
                     settings.syncMirror(api, wk, gw.token)
-                    Watchkit.setConfig(wk.ifEmpty { AppSettings.DEFAULT_WATCHKIT_URL }, if (gw.direct) gw.watchkitToken else settings.watchkitToken())
+                    Watchkit.setConfig(if (gw.direct) wk else wk.ifEmpty { AppSettings.DEFAULT_WATCHKIT_URL }, if (gw.direct) gw.watchkitToken else settings.watchkitToken())
                 }
                 // ROUTE FOLLOWED THE LINK (SPEC §11.6): without this, the app discovered a network
                 // change by failing one ask — a winner learned on home Wi-Fi stayed "fresh" for

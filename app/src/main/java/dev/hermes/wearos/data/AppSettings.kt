@@ -590,7 +590,12 @@ class AppSettings(private val context: Context) {
     }
 
     /** watchkit helper daemon (server/watchkit): mermaid render + STT fallback; token via Settings/dev hook. */
-    suspend fun mermaidBaseUrl(): String = context.dataStore.data.first()[KEY_WATCHKIT_URL] ?: DEFAULT_WATCHKIT_URL
+    suspend fun mermaidBaseUrl(): String {
+        // A direct gateway without a watchkit has none: the tailnet default would only leak its
+        // name to the local resolver and fail.
+        selectedGateway()?.takeIf { it.direct }?.let { return it.watchkitEndpoints.firstOrNull().orEmpty() }
+        return context.dataStore.data.first()[KEY_WATCHKIT_URL]?.ifEmpty { null } ?: DEFAULT_WATCHKIT_URL
+    }
 
     /**
      * MEDIA SCALING (owner 2026-11-02, media epic): the three knobs the watchkit /media endpoint

@@ -99,6 +99,9 @@ class GatewayStt(
         }
         stopping = false
         val cfg = Watchkit.config.value
+        if (cfg.baseUrl.isEmpty()) {
+            send(VoskEvent.Error("no watchkit for this gateway")); return@channelFlow
+        }
         val buffer = ArrayDeque<ByteArray>()
         var bufferBytes = 0
         // WIRE side (Opus/AAC/PCM per MicCodec): frames encoded from the FIRST chunk are queued
