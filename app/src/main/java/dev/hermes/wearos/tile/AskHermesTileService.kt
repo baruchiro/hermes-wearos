@@ -48,6 +48,12 @@ class AskHermesTileService : TileService() {
         return ready(tile)
     }
 
+    // The default throws "onTileResourcesRequest not implemented", and the tile stays black.
+    override fun onTileResourcesRequest(
+        requestParams: RequestBuilders.ResourcesRequest,
+    ): ListenableFuture<androidx.wear.protolayout.ResourceBuilders.Resources> =
+        ready(androidx.wear.protolayout.ResourceBuilders.Resources.Builder().setVersion(RESOURCES_VERSION).build())
+
     private fun buildLayout(context: Context): LayoutElementBuilders.LayoutElement {
         val openTalk = ActionBuilders.LaunchAction.Builder()
             .setAndroidActivity(
@@ -74,12 +80,17 @@ class AskHermesTileService : TileService() {
             .setMultilineAlignment(LayoutElementBuilders.TEXT_ALIGN_CENTER)
             .build()
 
-        return LayoutElementBuilders.Column.Builder()
-            .setWidth(DimensionBuilders.ExpandedDimensionProp.Builder().build())
-            .setHeight(DimensionBuilders.ExpandedDimensionProp.Builder().build())
+        val column = LayoutElementBuilders.Column.Builder()
             .setHorizontalAlignment(LayoutElementBuilders.HORIZONTAL_ALIGN_CENTER)
             .addContent(mic)
             .addContent(label)
+            .build()
+        return LayoutElementBuilders.Box.Builder()
+            .setWidth(DimensionBuilders.ExpandedDimensionProp.Builder().build())
+            .setHeight(DimensionBuilders.ExpandedDimensionProp.Builder().build())
+            .setHorizontalAlignment(LayoutElementBuilders.HORIZONTAL_ALIGN_CENTER)
+            .setVerticalAlignment(LayoutElementBuilders.VERTICAL_ALIGN_CENTER)
+            .addContent(column)
             .setModifiers(ModifiersBuilders.Modifiers.Builder().setClickable(click).build())
             .build()
     }
