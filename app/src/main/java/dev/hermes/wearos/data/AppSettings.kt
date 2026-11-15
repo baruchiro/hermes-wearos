@@ -196,12 +196,6 @@ class AppSettings(private val context: Context) {
     val profile: StateFlow<String> = _profile
     fun profileSync(): String = _profile.value
 
-    init {
-        // An agent switch (base-URL swap, dial agent lane, gateway fold) re-resolves the
-        // EFFECTIVE reply volume — the Voice slider and the dial must track the new agent.
-        kotlinx.coroutines.MainScope().launch { _profile.collect { refreshTtsVolumeFor() } }
-    }
-
     /** Persisted last-used agent (owner batch 2); default `wear`, garbage values fall back. */
     suspend fun savedAgent(): String =
         context.dataStore.data.first()[KEY_CURRENT_AGENT]?.takeIf { ProfileLogic.isValidProfile(it) }
@@ -927,5 +921,14 @@ class AppSettings(private val context: Context) {
         val fresh = "wear-watch-" + System.currentTimeMillis().toString(36)
         setSessionId(fresh)
         return fresh
+    }
+
+    // Last in the class on purpose: built off the main thread, this collector can run before the
+    // constructor finishes, and any field declared below it would still be null (seen on the watch:
+    // NPE on _ttsVolumes in ttsVolumeFor).
+    init {
+        // An agent switch (base-URL swap, dial agent lane, gateway fold) re-resolves the
+        // EFFECTIVE reply volume — the Voice slider and the dial must track the new agent.
+        kotlinx.coroutines.MainScope().launch { _profile.collect { refreshTtsVolumeFor() } }
     }
 }
