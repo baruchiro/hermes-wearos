@@ -368,6 +368,14 @@ class GatewayModelTest {
     }
 
     @Test
+    fun `a rejected endpoint is named by its origin, never by its credentials or query`() {
+        val bad = Gateway("g", "lab", listOf("https://u:secret@hermes.example.com/?token=t0k"), emptyList(), "", emptyMap(), direct = true)
+        val msg = DirectGateway.validate(bad)!!
+        assertTrue(msg.startsWith("https://hermes.example.com: "))
+        assertFalse(msg.contains("secret") || msg.contains("t0k") || msg.contains("u:"))
+    }
+
+    @Test
     fun `bare hosts normalize to https, never to the tailnet http 8642 default`() {
         assertEquals("https://hermes.example.com", DirectGateway.normalizeEndpoint("hermes.example.com"))
         assertEquals("https://hermes.example.com:8443", DirectGateway.normalizeEndpoint("hermes.example.com:8443/p/wear/"))

@@ -75,9 +75,13 @@ object DirectGateway {
     /** First problem with [gw], or null. Tailnet gateways may not carry access headers. */
     fun validate(gw: Gateway): String? {
         if (!gw.direct) return if (gw.accessHeaders.isEmpty()) null else "access headers need a direct (https) gateway"
-        (gw.apiEndpoints + gw.watchkitEndpoints).forEach { ep -> validateEndpoint(ep)?.let { return "$ep: $it" } }
+        (gw.apiEndpoints + gw.watchkitEndpoints).forEach { ep -> validateEndpoint(ep)?.let { return "${endpointLabel(ep)}: $it" } }
         return validateHeaders(gw.accessHeaders)
     }
+
+    /** scheme://host only: the raw endpoint can carry credentials or a token in its query. */
+    private fun endpointLabel(ep: String): String =
+        originOf(ep)?.let { "${it.scheme}://${it.host}" } ?: "endpoint"
 
     fun origins(gw: Gateway): Set<Origin> =
         if (!gw.direct) emptySet()
