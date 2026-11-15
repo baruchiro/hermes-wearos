@@ -387,6 +387,11 @@ class DevAskReceiver : BroadcastReceiver() {
      * only lengths are logged.
      */
     private suspend fun addDirectGateway(ctx: Context, name: String) {
+        // The receiver is exported (debug only): accept a bare file name, never a path.
+        if (!name.matches(Regex("[A-Za-z0-9_-]+\\.json"))) {
+            Log.w("HermesWear", "direct_gw refused: file name must match [A-Za-z0-9_-]+.json")
+            return
+        }
         val file = java.io.File(ctx.filesDir, name)
         val msg = try {
             val o = org.json.JSONObject(file.readText())
@@ -406,8 +411,10 @@ class DevAskReceiver : BroadcastReceiver() {
             WearApp.Graph.settings.saveGateway(gw, select = false)
             WearApp.Graph.devGwSelect(gw.id)
             "direct_gw ok id=${gw.id} headers=${gw.accessHeaders.keys} keys=${gw.agentKeys.mapValues { it.value.length }}"
+        } catch (e: IllegalArgumentException) {
+            "direct_gw FAILED: ${e.message}" // validator text: names the rule, never a header value
         } catch (e: Exception) {
-            "direct_gw FAILED: ${e.javaClass.simpleName}: ${e.message}"
+            "direct_gw FAILED: ${e.javaClass.simpleName}" // a JSON parse message can quote secret input
         } finally {
             file.delete()
         }
